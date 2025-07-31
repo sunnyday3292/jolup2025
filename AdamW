@@ -1,0 +1,18 @@
+import torch.optim as optim
+
+class SimpleClassifier(nn.Module):
+    def __init__(self, input_dim=4, num_classes=10):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, num_classes)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+num_classes = len(model.names)
+optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+AdamWmodel = SimpleClassifier(input_dim=4, optimizer, num_classes=num_classes)
+process_video(video_path,AdamWmodel, model)
