@@ -1,0 +1,182 @@
+!pip install opencv-python numpy matplotlib ultralytics
+
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import random
+from collections import deque, defaultdict
+
+# YOLOv8 모델 로드
+model = YOLO("yolov8n.pt")  # 가장 가벼운 모델
+
+from google.colab import files
+uploaded = files.upload()
+
+# 업로드된 파일명 추출
+video_path = next(iter(uploaded))
+
+# replay
+class ReplayBuffer:
+    def __init__(self, capacity=500):
+        self.buffer = deque(maxlen=capacity)
+
+    def add(self, x_vec, label):
+        self.buffer.append((x_vec, label))
+
+    def sample(self, batch_size=32):
+        batch = random.sample(self.buffer, min(len(self.buffer), batch_size))
+        xs, ys = zip(*batch)
+        xs = torch.tensor(xs, dtype=torch.float32)
+        ys = torch.tensor(ys, dtype=torch.long)
+        return xs, ys
+
+    def __len__(self):
+        return len(self.buffer)
+
+# 결과 분석
+def evaluate_ocl_metrics(all_preds, all_gts, predictions_by_class, groundtruth_by_class):
+    print("\n\n📊 Online Continual Learning Metrics:")
+    total_correct = sum(p == g for p, g in zip(all_preds, all_gts))
+    acc = total_correct / (len(all_gts) + 1e-6)
+    print(f"FM (Final Accuracy): {acc:.4f}")
+
+    seen_classes = sorted(predictions_by_class.keys())
+    bwt_values, im_values = [], []
+
+    for c in seen_classes:
+        preds = np.array(predictions_by_class[c])
+        gts = np.array(groundtruth_by_class[c])
+        acc_end = np.mean(preds == gts)
+        acc_start = 1.0  # FTRL은 초기 예측이 불확실하다고 가정
+        bwt_values.append(acc_end - acc_start)
+        im_values.append(acc_start - acc_end)
+
+    bwt = np.mean(bwt_values) if bwt_values else 0.0
+    im = np.mean(im_values) if im_values else 0.0
+
+    print(f"BWT (Backward Transfer): {bwt:.4f}")
+    print(f"FWT (Forward Transfer): {0.0:.4f}")  # 모든 클래스 즉시 학습
+    print(f"IM (Intransigence): {im:.4f}")
+
+
+class SimpleClassifier(nn.Module):
+    def __init__(self, input_dim=4, num_classes=10):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, num_classes)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+
+def estimate_distance(box_h, focal_length_px, real_height_m):
+    return (focal_length_px * real_height_m) / (box_h + 1e-6)
+
+
+def extract_feature_vector(x1, y1, x2, y2, focal_length_px, real_height_m):
+    box_w = x2 - x1
+    box_h = y2 - y1
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    area = box_w * box_h
+    distance = estimate_distance(box_h, focal_length_px, real_height_m)
+    return [center_x, center_y, area, distance], distance, area, center_x, center_y
+
+
+def annotate_frame(frame, x1, y1, x2, y2, class_name, distance):
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    cv2.putText(frame, f"{class_name} {distance:.1f}m",
+                (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+
+
+def train_step(model, optimizer, criterion, x_batch, y_batch):
+    model.train()
+    optimizer.zero_grad()
+    outputs = model(x_batch)
+    loss = criterion(outputs, y_batch)
+    loss.backward()
+    optimizer.step()
+    return loss.item()
+
+
+def process_video_with_sgd(video_path, model, yolo_model,
+                           focal_length_px=700, real_object_height_m=1.7,
+                           save_output=True, replay_capacity=500,
+                           batch_size=32, num_classes=10):
+    cap = cv2.VideoCapture(video_path)
+    frame_count = 0
+
+    if save_output:
+        os.makedirs("output_frames", exist_ok=True)
+
+    replay_buffer = ReplayBuffer(capacity=replay_capacity)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+    predictions_by_class = defaultdict(list)
+    groundtruth_by_class = defaultdict(list)
+    all_preds = []
+    all_gts = []
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_count += 1
+        print(f"\n[Frame {frame_count}]")
+        results = yolo_model(frame)[0]
+
+        for box in results.boxes:
+            cls_id = int(box.cls[0].item())
+            class_name = results.names[cls_id]
+            conf = float(box.conf[0].item())
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            x_vec, distance, area, cx, cy = extract_feature_vector(
+                x1, y1, x2, y2, focal_length_px, real_object_height_m)
+
+            # Replay 버퍼에 추가
+            replay_buffer.add(x_vec, cls_id)
+
+            # 샘플로 미니배치 학습 (온라인 학습 느낌)
+            if len(replay_buffer) >= batch_size:
+                x_batch, y_batch = replay_buffer.sample(batch_size)
+                loss = train_step(model, optimizer, criterion, x_batch, y_batch)
+
+            # 예측
+            model.eval()
+            with torch.no_grad():
+                input_tensor = torch.tensor([x_vec], dtype=torch.float32)
+                output = model(input_tensor)
+                pred_cls = output.argmax(dim=1).item()
+
+            all_preds.append(pred_cls)
+            all_gts.append(cls_id)
+            predictions_by_class[cls_id].append(pred_cls)
+            groundtruth_by_class[cls_id].append(cls_id)
+
+            print(f"  ▶ 예측={pred_cls}, 실제={cls_id}, 클래스={class_name}, 신뢰도={conf:.2f}, "
+                  f"거리={distance:.2f}m, bbox={area:.0f}, 중심=({cx:.0f},{cy:.0f})")
+
+            if save_output:
+                annotate_frame(frame, x1, y1, x2, y2, class_name, distance)
+
+        if save_output:
+            cv2.imwrite(f"output_frames/frame_{frame_count:03d}.jpg", frame)
+
+    cap.release()
+
+    # 평가 (FM, BWT, FWT, IM) 계산 함수는 위에 있는 evaluate_ocl_metrics 함수를 그대로 활용 가능
+    evaluate_ocl_metrics(all_preds, all_gts, predictions_by_class, groundtruth_by_class)
+
+num_classes = len(model.names)
+sgdmodel = SimpleClassifier(input_dim=4, num_classes=num_classes)
+process_video_with_sgd(video_path,sgdmodel, model)
