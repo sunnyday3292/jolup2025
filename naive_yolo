@@ -1,0 +1,27 @@
+
+# 단순한 Replay 기반 모델
+class NaiveReplayModel:
+    def __init__(self, input_dim=4, num_classes=10):
+        self.feature_memory = defaultdict(list)  # 클래스별 feature 저장
+        self.input_dim = input_dim
+        self.num_classes = num_classes
+
+    def update(self, x_vec, cls_id):
+        self.feature_memory[cls_id].append(x_vec)
+
+    def predict(self, x_vec):
+        # 모든 클래스의 평균 벡터와의 거리 비교
+        x_vec = np.array(x_vec)
+        min_dist = float("inf")
+        pred_cls = 0
+        for cls_id, vectors in self.feature_memory.items():
+            avg_vec = np.mean(vectors, axis=0)
+            dist = np.linalg.norm(x_vec - avg_vec)
+            if dist < min_dist:
+                min_dist = dist
+                pred_cls = cls_id
+        return pred_cls
+
+num_classes = len(model.names)
+naive_model = NaiveReplayModel(input_dim=4, num_classes=num_classes)
+process_video_with_replay(video_path, naive_model, model)
