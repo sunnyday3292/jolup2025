@@ -63,19 +63,6 @@ def evaluate_ocl_metrics(all_preds, all_gts, predictions_by_class, groundtruth_b
     print(f"IM (Intransigence): {im:.4f}")
 
 
-class SimpleClassifier(nn.Module):
-    def __init__(self, input_dim=4, num_classes=10):
-        super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-
-    def forward(self, x):
-        return self.fc(x)
-
-
 def estimate_distance(box_h, focal_length_px, real_height_m):
     return (focal_length_px * real_height_m) / (box_h + 1e-6)
 
@@ -106,7 +93,7 @@ def train_step(model, optimizer, criterion, x_batch, y_batch):
     return loss.item()
 
 
-def process_video_with_sgd(video_path, model, yolo_model,
+def process_video(video_path, model, yolo_model,optimizer,
                            focal_length_px=700, real_object_height_m=1.7,
                            save_output=True, replay_capacity=500,
                            batch_size=32, num_classes=10):
@@ -118,7 +105,6 @@ def process_video_with_sgd(video_path, model, yolo_model,
 
     replay_buffer = ReplayBuffer(capacity=replay_capacity)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.01)
 
     predictions_by_class = defaultdict(list)
     groundtruth_by_class = defaultdict(list)
@@ -176,7 +162,3 @@ def process_video_with_sgd(video_path, model, yolo_model,
 
     # 평가 (FM, BWT, FWT, IM) 계산 함수는 위에 있는 evaluate_ocl_metrics 함수를 그대로 활용 가능
     evaluate_ocl_metrics(all_preds, all_gts, predictions_by_class, groundtruth_by_class)
-
-num_classes = len(model.names)
-sgdmodel = SimpleClassifier(input_dim=4, num_classes=num_classes)
-process_video_with_sgd(video_path,sgdmodel, model)
