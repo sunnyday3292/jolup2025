@@ -24,26 +24,7 @@ cv2.setNumThreads(1)
 try:
     from dqn import LaneDetector, DQN
 except ImportError:
-    print("dqn.py에서 모듈을 찾을 수 없습니다. 기본 클래스를 사용합니다.")
-
-    # 기본 클래스 정의
-    class LaneDetector:
-        def process_frame(self, frame):
-            return [None, None], 1
-
-    class ObstacleDetector:
-        def find_red_area(self, frame):
-            return 0
-
-    class DQN:
-        def __init__(self, state_dim, action_dim):
-            pass
-
-        def eval(self):
-            pass
-
-        def to(self, device):
-            return self
+    print("dqn.py에서 모듈을 찾을 수 없습니다.")
 
 
 class ArduinoRCCarController:
