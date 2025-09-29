@@ -210,12 +210,6 @@ class OfflineDataCollector:
                     done = True
                 self.before_act = saved_before_act  # 복원
 
-                # 보상 계산
-                reward = self._calculate_reward(state)
-
-                # done 여부
-                done = False
-
                 # 종료 조건
                 if state[1] > 0:  # over_line
                     done = True
