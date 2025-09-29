@@ -185,7 +185,7 @@ class JetsonAutonomousController:
         self.policy_net.eval()
 
         # See3CAM_CU27 카메라 설정 (GUI 없이 실행)
-        self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # V4L2 백엔드 사용
+        self.cap = cv2.VideoCapture(1, cv2.CAP_V4L2)  # V4L2 백엔드 사용
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)  # See3CAM_CU27 최대 해상도
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
