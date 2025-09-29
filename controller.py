@@ -178,7 +178,6 @@ class JetsonAutonomousController:
 
         # 컴퓨터 비전 모듈
         self.lane_detector = LaneDetector()
-        self.obstacle_detector = ObstacleDetector()
 
         # DQN 모델
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
