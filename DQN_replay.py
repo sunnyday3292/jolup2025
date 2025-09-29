@@ -377,8 +377,8 @@ class DQNAgent:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            print("Offline DQN training completed!")
-            return self.policy_net
+    print("Offline DQN training completed!")
+    return self.policy_net
 
     # ==========================
     # 2️⃣ 온라인 RL 한 스텝 학습 + 액션 출력
